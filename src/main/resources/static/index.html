@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quikz</title>
+<style>
+  :root{
+    --bg:#05070c; --void:#090d15; --claimed:#103244; --claimed-line:#1fb6c9;
+    --trail:#f2c14e; --player:#f4f7fb; --qix:#ff3f7f; --sparx:#ff8a3d;
+    --text:#cfe8ee; --text-dim:#6f8894; --panel:#0b1119; --panel-line:#1a2733; --accent:#1fb6c9;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  html,body{ height:100%; margin:0; background:var(--bg); color:var(--text);
+    font-family:'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    overscroll-behavior:none; }
+  *{ user-select:none; }
+  #app{ min-height:100%; display:flex; flex-direction:column; align-items:center; padding:14px 12px 10px; gap:10px; }
+  .brand{ display:flex; align-items:baseline; gap:10px; width:100%; max-width:680px; justify-content:space-between; }
+  .brand h1{ font-size:20px; margin:0; font-weight:700; }
+  .brand h1 span{ color:var(--accent); }
+  .brand .tag{ font-size:11px; color:var(--text-dim); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  #hud{ width:100%; max-width:680px; display:flex; justify-content:space-between; align-items:center;
+    background:var(--panel); border:1px solid var(--panel-line); border-radius:6px; padding:9px 14px;
+    font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; }
+  #hud .stat{ display:flex; flex-direction:column; gap:2px; min-width:52px; }
+  #hud .stat b{ font-size:15px; font-weight:600; }
+  #hud .stat span{ font-size:9.5px; color:var(--text-dim); letter-spacing:0.06em; }
+  #hud .pct b{ color:var(--claimed-line); }
+  .lives-row{ display:flex; gap:4px; margin-top:1px; }
+  .life-dot{ width:8px; height:8px; border-radius:50%; background:var(--player); box-shadow:0 0 5px var(--player); }
+  .life-dot.lost{ background:transparent; border:1px solid var(--panel-line); box-shadow:none; }
+
+  #stage-wrap{ position:relative; width:100%; max-width:680px; border-radius:8px; overflow:hidden;
+    border:1px solid var(--panel-line); background:var(--void); }
+  canvas{ display:block; width:100%; height:auto; background:var(--void); }
+
+  .overlay{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:14px; background:rgba(5,7,12,0.86); padding:24px; transition:opacity .25s ease; }
+  .overlay.hidden{ opacity:0; pointer-events:none; }
+  .overlay h2{ font-size:26px; margin:0; }
+  .overlay h2 em{ font-style:normal; color:var(--accent); }
+  .overlay p{ margin:0; color:var(--text-dim); font-size:13.5px; max-width:360px; line-height:1.5; }
+  .figure{ font-size:11px; color:var(--text-dim); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .figure b{ color:var(--claimed-line); font-size:15px; }
+
+  button.cta{ appearance:none; border:none; cursor:pointer; background:var(--accent); color:#04141a;
+    font-weight:700; padding:11px 26px; border-radius:5px; font-size:14px; font-family:'Space Grotesk',sans-serif; }
+  button.cta[disabled]{ opacity:0.5; cursor:default; }
+  button.cta:active{ transform:scale(0.97); }
+
+  .howto{ display:flex; gap:16px; font-size:11px; color:var(--text-dim); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .howto .k{ color:var(--text); }
+
+  #controls{ width:100%; max-width:680px; display:none; grid-template-columns:repeat(3,56px);
+    grid-template-rows:repeat(3,56px); gap:6px; justify-content:center; margin-top:2px; }
+  #controls.show{ display:grid; }
+  .pad-btn{ appearance:none; border:1px solid var(--panel-line); background:var(--panel); border-radius:8px;
+    color:var(--text); font-size:20px; display:flex; align-items:center; justify-content:center; touch-action:none; }
+  .pad-btn:active{ background:var(--accent); color:#04141a; }
+  #pad-up{ grid-column:2; grid-row:1; } #pad-left{ grid-column:1; grid-row:2; }
+  #pad-right{ grid-column:3; grid-row:2; } #pad-down{ grid-column:2; grid-row:3; }
+
+  .foot{ font-size:10.5px; color:var(--text-dim); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align:center; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+  <div class="brand">
+    <h1>QUI<span>KZ</span></h1>
+    <div class="tag">Spring Boot WebSocket edition</div>
+  </div>
+
+  <div id="hud">
+    <div class="stat"><b id="hud-score">0</b><span>SCORE</span></div>
+    <div class="stat pct"><b id="hud-pct">0%</b><span id="hud-claim-goal">CLAIMED / 75%</span></div>
+    <div class="stat"><b id="hud-level">1</b><span>LEVEL</span></div>
+    <div class="stat"><span>LIVES</span><div class="lives-row" id="hud-lives"></div></div>
+  </div>
+
+  <div id="stage-wrap">
+    <canvas id="game" width="640" height="440"></canvas>
+
+    <div class="overlay" id="overlay-start">
+      <h2>Claim the <em>field</em></h2>
+      <p>Draw lines out from the border to wall off territory. The server runs the shape and the patrollers — finish a line before they touch it, or you lose a life.</p>
+      <div class="howto"><div><span class="k">Arrows / WASD</span> move</div><div><span class="k">Space</span> pause</div></div>
+      <button class="cta" id="btn-start" disabled>Connecting…</button>
+    </div>
+
+    <div class="overlay hidden" id="overlay-pause"><h2>Paused</h2><button class="cta" id="btn-resume">Resume</button></div>
+
+    <div class="overlay hidden" id="overlay-level">
+      <h2>Field <em id="level-num">1</em> claimed</h2>
+      <p id="level-msg">Onward — the shape moves faster from here.</p>
+      <button class="cta" id="btn-next">Continue</button>
+    </div>
+
+    <div class="overlay hidden" id="overlay-over">
+      <h2>Field <em>lost</em></h2>
+      <p id="over-msg">Reached level 1.</p>
+      <div class="figure">Score: <b id="final-score">0</b></div>
+      <button class="cta" id="btn-retry">Try Again</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button class="pad-btn" id="pad-up" aria-label="Up">▲</button>
+    <button class="pad-btn" id="pad-left" aria-label="Left">◀</button>
+    <button class="pad-btn" id="pad-right" aria-label="Right">▶</button>
+    <button class="pad-btn" id="pad-down" aria-label="Down">▼</button>
+  </div>
+
+  <div class="foot">All physics and collision rules run server-side; this page only renders and sends direction input.</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const claimedCanvas = document.createElement('canvas');
+  const claimedContext = claimedCanvas.getContext('2d');
+  const cssColor = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  let TICK_MS = 33;
+  const STARTING_LIVES = 3;
+  const RECONNECT_DELAY_MS = 1500;
+  const QIX_ROTATION_MS = 450;
+  const PLAYER_BLINK_MS = 120;
+  const PLAYER_RADIUS = 5.5;
+  const SPARX_DIAMOND = 6;
+  const QIX_SPIKES = 5;
+  const QIX_STROKE_WIDTH = 2.4;
+  const FIELD_THEMES = {
+    orange: { claimed:'#c45a10', claimedLine:'#ffb060', sparx:'#3ec0ff', accent:'#ff8a3d' },
+    blue:   { claimed:'#156a90', claimedLine:'#4ad4ee', sparx:'#ff8a3d', accent:'#1fb6c9' },
+    green:  { claimed:'#1a8f48', claimedLine:'#5eec8a', sparx:'#ff4fd8', accent:'#3dcc6e' }
+  };
+  let currentTheme = FIELD_THEMES.blue;
+
+  let cols = 64, rows = 44, cell = 10, fieldWidth = 640, fieldHeight = 440;
+
+  let latest = null;
+  let lastMsgAt = performance.now();
+  let currentDir = {x:0,y:0};
+
+  function show(id){ document.getElementById(id).classList.remove('hidden'); }
+  function hide(id){ document.getElementById(id).classList.add('hidden'); }
+
+  function paintClaimed(indices){
+    claimedContext.fillStyle = currentTheme.claimed;
+    claimedContext.strokeStyle = currentTheme.claimedLine;
+    claimedContext.lineWidth = 1;
+    for(const index of indices){
+      const column = index % cols, row = Math.floor(index/cols);
+      const x = column * cell, y = row * cell;
+      claimedContext.fillRect(x, y, cell, cell);
+      claimedContext.strokeRect(x + 0.5, y + 0.5, cell - 1, cell - 1);
+    }
+  }
+
+  function updateHud(msg){
+    document.getElementById('hud-score').textContent = msg.score;
+    document.getElementById('hud-pct').textContent = Math.floor(msg.pct) + '%';
+    document.getElementById('hud-level').textContent = msg.level;
+    const livesEl = document.getElementById('hud-lives');
+    livesEl.innerHTML = '';
+    for(let life = 0; life < STARTING_LIVES; life++){
+      const dot = document.createElement('div');
+      dot.className = 'life-dot' + (life < msg.lives ? '' : ' lost');
+      livesEl.appendChild(dot);
+    }
+  }
+
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/game';
+  let ws;
+
+  function connect(){
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      const btn = document.getElementById('btn-start');
+      btn.disabled = false; btn.textContent = 'Start Game';
+    };
+    ws.onclose = () => {
+      const btn = document.getElementById('btn-start');
+      btn.disabled = true; btn.textContent = 'Reconnecting…';
+      setTimeout(connect, RECONNECT_DELAY_MS);
+    };
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if(msg.type === 'init') onInit(msg);
+      else if(msg.type === 'state') onState(msg);
+    };
+  }
+
+  function send(obj){ if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+
+  function applyTheme(name){
+    currentTheme = FIELD_THEMES[name] || FIELD_THEMES.blue;
+    const root = document.documentElement.style;
+    root.setProperty('--claimed', currentTheme.claimed);
+    root.setProperty('--claimed-line', currentTheme.claimedLine);
+    root.setProperty('--sparx', currentTheme.sparx);
+    root.setProperty('--accent', currentTheme.accent);
+  }
+
+  function onInit(msg){
+    cols = msg.cols; rows = msg.rows; cell = msg.cell;
+    fieldWidth = cols*cell; fieldHeight = rows*cell;
+    canvas.width = fieldWidth; canvas.height = fieldHeight;
+    claimedCanvas.width = fieldWidth; claimedCanvas.height = fieldHeight;
+    applyTheme(msg.theme);
+    if (msg.targetPct != null) {
+      document.getElementById('hud-claim-goal').textContent = 'CLAIMED / ' + Math.floor(msg.targetPct) + '%';
+    }
+    if (msg.tickMs) TICK_MS = msg.tickMs;
+    claimedContext.clearRect(0,0,fieldWidth,fieldHeight);
+    paintClaimed(msg.claimed);
+    hide('overlay-level'); hide('overlay-over'); hide('overlay-start'); hide('overlay-pause');
+  }
+
+  function pauseIsAllowed(){
+    return latest && (latest.phase === 'playing' || latest.phase === 'paused');
+  }
+
+  function onState(msg){
+    if (msg.theme) applyTheme(msg.theme);
+    if(msg.newlyClaimed && msg.newlyClaimed.length) paintClaimed(msg.newlyClaimed);
+    latest = msg;
+    lastMsgAt = performance.now();
+    updateHud(msg);
+    if (msg.phase === 'paused') show('overlay-pause');
+    else hide('overlay-pause');
+
+    if(msg.event === 'levelup'){
+      document.getElementById('level-num').textContent = msg.level;
+      document.getElementById('level-msg').textContent =
+        'Field cleared at ' + Math.floor(msg.pct) + '%. The shape speeds up ahead.';
+      show('overlay-level');
+    } else if(msg.event === 'gameover'){
+      document.getElementById('over-msg').textContent = 'Reached level ' + msg.level + '.';
+      document.getElementById('final-score').textContent = msg.score;
+      show('overlay-over');
+    }
+  }
+
+  function drawTrail(){
+    if(!latest.trail || !latest.trail.length) return;
+    ctx.fillStyle = cssColor('--trail');
+    for(let i=1;i<latest.trail.length;i++){
+      const trailCell = latest.trail[i];
+      ctx.fillRect(trailCell[0]*cell, trailCell[1]*cell, cell, cell);
+    }
+  }
+
+  function drawSparx(){
+    ctx.fillStyle = currentTheme.sparx;
+    for(const sparxCell of (latest.sparx || [])){
+      const px = sparxCell[0]*cell + cell/2, py = sparxCell[1]*cell + cell/2;
+      ctx.beginPath();
+      ctx.moveTo(px, py-SPARX_DIAMOND); ctx.lineTo(px+SPARX_DIAMOND, py); ctx.lineTo(px, py+SPARX_DIAMOND); ctx.lineTo(px-SPARX_DIAMOND, py);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  function drawQix(){
+    if(!latest.qix) return;
+    ctx.save();
+    ctx.translate(latest.qix.x, latest.qix.y);
+    ctx.rotate(performance.now()/QIX_ROTATION_MS);
+    ctx.strokeStyle = cssColor('--qix');
+    ctx.lineWidth = QIX_STROKE_WIDTH;
+    ctx.beginPath();
+    const outerRadius = latest.qix.outerRadius;
+    const innerRadius = latest.qix.innerRadius;
+    const points = QIX_SPIKES * 2;
+    for(let i=0;i<points;i++){
+      const radius = i%2===0 ? outerRadius : innerRadius;
+      const angle = (i/points)*Math.PI*2;
+      const x = Math.cos(angle)*radius, y = Math.sin(angle)*radius;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath(); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPlayer(){
+    if(!latest.player) return;
+    const interpolation = Math.min((performance.now()-lastMsgAt)/TICK_MS, 1);
+    const player = latest.player;
+    const px = (player.px0 + (player.x - player.px0)*interpolation) * cell + cell/2;
+    const py = (player.py0 + (player.y - player.py0)*interpolation) * cell + cell/2;
+    const blink = player.invuln && Math.floor(performance.now()/PLAYER_BLINK_MS)%2===0;
+    if(!blink){
+      ctx.fillStyle = cssColor('--player');
+      ctx.beginPath(); ctx.arc(px, py, PLAYER_RADIUS, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  function render(){
+    ctx.clearRect(0,0,fieldWidth,fieldHeight);
+    ctx.drawImage(claimedCanvas,0,0);
+    if(latest){
+      drawTrail();
+      drawSparx();
+      drawQix();
+      drawPlayer();
+    }
+    requestAnimationFrame(render);
+  }
+
+  const dirKeys = {
+    ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
+    w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0]
+  };
+  const keys = {};
+  function setDir(x,y){ currentDir = {x,y}; send({type:'dir', dx:x, dy:y}); }
+
+  window.addEventListener('keydown', (event)=>{
+    if(dirKeys[event.key]){
+      event.preventDefault();
+      keys[event.key] = true;
+      const [dx,dy] = dirKeys[event.key];
+      setDir(dx,dy);
+    } else if(event.key === ' '){
+      event.preventDefault();
+      if (pauseIsAllowed()) send({type:'pause'});
+    }
+  });
+  window.addEventListener('keyup', (event)=>{
+    if(dirKeys[event.key]){
+      delete keys[event.key];
+      const remaining = Object.keys(keys);
+      if(remaining.length){ const [dx,dy] = dirKeys[remaining[remaining.length-1]]; setDir(dx,dy); }
+      else setDir(0,0);
+    }
+  });
+
+  function bindPad(id, dx, dy){
+    const el = document.getElementById(id);
+    const start = (event)=>{ event.preventDefault(); setDir(dx,dy); };
+    const end = (event)=>{ event.preventDefault(); if(currentDir.x===dx && currentDir.y===dy) setDir(0,0); };
+    el.addEventListener('pointerdown', start);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointerleave', end);
+    el.addEventListener('pointercancel', end);
+  }
+  bindPad('pad-up',0,-1); bindPad('pad-down',0,1);
+  bindPad('pad-left',-1,0); bindPad('pad-right',1,0);
+  if('ontouchstart' in window) document.getElementById('controls').classList.add('show');
+
+  document.getElementById('btn-start').addEventListener('click', ()=>{ send({type:'start'}); });
+  document.getElementById('btn-retry').addEventListener('click', ()=>{ hide('overlay-over'); send({type:'retry'}); });
+  document.getElementById('btn-next').addEventListener('click', ()=>{ hide('overlay-level'); send({type:'next'}); });
+  document.getElementById('btn-resume').addEventListener('click', ()=>{ if (pauseIsAllowed()) send({type:'pause'}); });
+
+  connect();
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
